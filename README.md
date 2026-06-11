@@ -12,7 +12,7 @@ with a single command pasted into the node shell.
    - `SETUP-GUIDE.md` (optional, for reference)
 2. Edit `proxmox-create-fivem-lxc.sh` and set `RAW_BASE` to your repo:
    ```bash
-   RAW_BASE="https://raw.githubusercontent.com/blake165/proxmox-fivem/main"
+   RAW_BASE="https://raw.githubusercontent.com/blake165/automated-FiveM-lxc-for-proxmox/main"
    ```
    Also change the default `CT_ROOT_PASSWORD`.
 

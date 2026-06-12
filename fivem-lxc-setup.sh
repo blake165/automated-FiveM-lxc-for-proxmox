@@ -21,8 +21,9 @@ ARTIFACT_DIR="${FIVEM_HOME}/artifact"      # FXServer binaries live here
 TXDATA_DIR="${FIVEM_HOME}/txData"          # drop your existing txData here
 SERVERDATA_DIR="${FIVEM_HOME}/server-data" # drop your existing server folder here
 TXADMIN_PORT="40120"
-# Pin a specific artifact by setting this to a full fx.tar.xz URL, or leave
-# empty to auto-detect the newest build from the official build proxy.
+# Pin a specific artifact by setting this to a full fx.tar.xz URL from
+# https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master/
+# or leave empty to auto-detect the recommended build.
 ARTIFACT_URL=""
 # -----------------------------------------------------------------------------
 
@@ -43,22 +44,22 @@ fi
 mkdir -p "${ARTIFACT_DIR}" "${TXDATA_DIR}" "${SERVERDATA_DIR}"
 
 echo "==> Resolving FXServer artifact..."
-BASE_URL="https://runtime.fivem.net/artifacts/fivem/build_proxy_linux/master"
+BASE_URL="https://runtime.fivem.net/artifacts/fivem/build_proot_linux/master"
 if [[ -z "${ARTIFACT_URL}" ]]; then
-  # Try the standard linux build listing first, fall back to the legacy path
-  PAGE=$(curl -fsSL "${BASE_URL}/" 2>/dev/null || true)
-  if [[ -z "${PAGE}" ]]; then
-    BASE_URL="https://runtime.fivem.net/artifacts/fivem/build_proxy/master"
-    PAGE=$(curl -fsSL "${BASE_URL}/")
+  # Preferred: official JSON API for the recommended build
+  VERSION=$(curl -fsSL "${BASE_URL}/recommended.json" 2>/dev/null | jq -r '.version' 2>/dev/null || true)
+  if [[ -z "${VERSION}" || "${VERSION}" == "null" ]]; then
+    # Fallback: scrape the build listing page for the newest build
+    PAGE=$(curl -fsSL "${BASE_URL}/" 2>/dev/null || true)
+    VERSION=$(echo "${PAGE}" | grep -oE '[0-9]+-[a-f0-9]{40}' | sort -t- -k1,1n | tail -1)
   fi
-  LATEST=$(echo "${PAGE}" | grep -oE '[0-9]+-[a-f0-9]{40}' | sort -t- -k1,1n | tail -1)
-  if [[ -z "${LATEST}" ]]; then
-    echo "Could not auto-detect the latest artifact." >&2
+  if [[ -z "${VERSION}" ]]; then
+    echo "Could not auto-detect the FXServer build version." >&2
     echo "Set ARTIFACT_URL at the top of this script manually, e.g.:" >&2
-    echo "  https://runtime.fivem.net/artifacts/fivem/build_proxy_linux/master/<BUILD>/fx.tar.xz" >&2
+    echo "  ${BASE_URL}/<BUILD>/fx.tar.xz" >&2
     exit 1
   fi
-  ARTIFACT_URL="${BASE_URL}/${LATEST}/fx.tar.xz"
+  ARTIFACT_URL="${BASE_URL}/${VERSION}/fx.tar.xz"
 fi
 echo "    Using: ${ARTIFACT_URL}"
 

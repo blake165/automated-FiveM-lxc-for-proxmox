@@ -21,8 +21,8 @@ set -euo pipefail
 
 # ----------------------------- configurable ---------------------------------
 # All of these can be overridden inline when using the one-liner, e.g.:
-#   CTID=120 IP_CONFIG="192.168.1.50/24" GATEWAY="192.168.1.1" \
-#     bash -c "$(curl -fsSL .../proxmox-create-fivem-lxc.sh)"
+# Prompts will ask for CTID, resources, network, and root password.
+# Skip prompts: NONINTERACTIVE=1 CT_ROOT_PASSWORD=x bash -c "$(curl ...)"
 CTID="${CTID:-110}"                      # container ID (must be unused)
 HOSTNAME="${HOSTNAME_CT:-fivem}"
 CORES="${CORES:-4}"
@@ -38,16 +38,150 @@ BRIDGE="${BRIDGE:-vmbr0}"
 IP_CONFIG="${IP_CONFIG:-dhcp}"
 GATEWAY="${GATEWAY:-}"
 
-# Root password for the container (console login). Change this!
-CT_ROOT_PASSWORD="${CT_ROOT_PASSWORD:-ChangeMe123!}"
+# Root password for the container (console login).
+CT_ROOT_PASSWORD="${CT_ROOT_PASSWORD:-}"
+
+# Set NONINTERACTIVE=1 to skip all prompts and use defaults/env values only.
+NONINTERACTIVE="${NONINTERACTIVE:-0}"
+
+# SSH: allow root login with password inside the container (needed for scp
+# file transfers from another machine). 1 = enable, 0 = skip.
+ENABLE_SSH_ROOT="${ENABLE_SSH_ROOT:-1}"
+
+# MariaDB: install a database for ESX/QBCore/oxmysql resources.
+INSTALL_MARIADB="${INSTALL_MARIADB:-1}"
+DB_NAME="${DB_NAME:-fivem}"
+DB_USER="${DB_USER:-fivem}"
+DB_PASSWORD="${DB_PASSWORD:-}"
 
 # Raw GitHub base URL of your repo (where fivem-lxc-setup.sh lives).
-# EDIT THIS to point at your repository:
 RAW_BASE="https://raw.githubusercontent.com/blake165/automated-FiveM-lxc-for-proxmox/main"
 # -----------------------------------------------------------------------------
 
 if [[ $EUID -ne 0 ]]; then echo "Run as root on the Proxmox host." >&2; exit 1; fi
 if ! command -v pct &>/dev/null; then echo "pct not found - is this a Proxmox host?" >&2; exit 1; fi
+
+# --------------------------- interactive wizard -----------------------------
+ask() { # ask "Question" "default" -> echoes answer
+  local q="$1" def="$2" ans
+  read -r -p "  ${q} [${def}]: " ans </dev/tty
+  echo "${ans:-$def}"
+}
+
+if [[ "${NONINTERACTIVE}" != "1" && -e /dev/tty ]]; then
+  echo ""
+  echo "============================================"
+  echo "      FiveM LXC - interactive setup"
+  echo "============================================"
+  echo "Press Enter to accept the [default] value."
+  echo ""
+
+  # Container ID - keep asking until we get a free, numeric one
+  while :; do
+    CTID=$(ask "Container ID" "${CTID}")
+    if ! [[ "${CTID}" =~ ^[0-9]+$ ]]; then
+      echo "  ! Must be a number."
+    elif pct status "${CTID}" &>/dev/null; then
+      echo "  ! CTID ${CTID} is already in use, pick another."
+    else
+      break
+    fi
+  done
+
+  HOSTNAME=$(ask "Hostname" "${HOSTNAME}")
+  CORES=$(ask "CPU cores" "${CORES}")
+  MEMORY=$(ask "Memory (MB)" "${MEMORY}")
+  DISK_GB=$(ask "Disk size (GB)" "${DISK_GB}")
+  STORAGE=$(ask "Storage for container disk" "${STORAGE}")
+  BRIDGE=$(ask "Network bridge" "${BRIDGE}")
+
+  NET_CHOICE=$(ask "Network: dhcp or static?" "$([[ ${IP_CONFIG} == dhcp ]] && echo dhcp || echo static)")
+  if [[ "${NET_CHOICE}" == "static" ]]; then
+    while :; do
+      IP_CONFIG=$(ask "Static IP with CIDR (e.g. 192.168.1.50/24)" "$([[ ${IP_CONFIG} == dhcp ]] && echo '' || echo "${IP_CONFIG}")")
+      [[ "${IP_CONFIG}" =~ ^[0-9.]+/[0-9]+$ ]] && break
+      echo "  ! Format must be IP/prefix, e.g. 192.168.1.50/24"
+    done
+    while :; do
+      GATEWAY=$(ask "Gateway (e.g. 192.168.1.1)" "${GATEWAY}")
+      [[ -n "${GATEWAY}" ]] && break
+      echo "  ! Gateway is required for a static IP."
+    done
+  else
+    IP_CONFIG="dhcp"
+    GATEWAY=""
+  fi
+
+  # Root password - hidden input, confirmed, required
+  if [[ -z "${CT_ROOT_PASSWORD}" ]]; then
+    while :; do
+      read -r -s -p "  Container root password: " PW1 </dev/tty; echo
+      read -r -s -p "  Confirm password: " PW2 </dev/tty; echo
+      if [[ -z "${PW1}" ]]; then
+        echo "  ! Password cannot be empty."
+      elif [[ "${PW1}" != "${PW2}" ]]; then
+        echo "  ! Passwords do not match, try again."
+      else
+        CT_ROOT_PASSWORD="${PW1}"
+        break
+      fi
+    done
+  fi
+
+  # SSH access
+  SSH_CHOICE=$(ask "Enable SSH root login (for scp file transfers)? (yes/no)" "yes")
+  [[ "${SSH_CHOICE}" =~ ^[Yy] ]] && ENABLE_SSH_ROOT=1 || ENABLE_SSH_ROOT=0
+
+  # MariaDB
+  DB_CHOICE=$(ask "Install MariaDB (needed for ESX/QBCore/oxmysql)? (yes/no)" "yes")
+  if [[ "${DB_CHOICE}" =~ ^[Yy] ]]; then
+    INSTALL_MARIADB=1
+    DB_NAME=$(ask "Database name" "${DB_NAME}")
+    DB_USER=$(ask "Database user" "${DB_USER}")
+    if [[ -z "${DB_PASSWORD}" ]]; then
+      while :; do
+        read -r -s -p "  Database password: " DBPW1 </dev/tty; echo
+        read -r -s -p "  Confirm database password: " DBPW2 </dev/tty; echo
+        if [[ -z "${DBPW1}" ]]; then
+          echo "  ! Password cannot be empty."
+        elif [[ "${DBPW1}" != "${DBPW2}" ]]; then
+          echo "  ! Passwords do not match, try again."
+        else
+          DB_PASSWORD="${DBPW1}"
+          break
+        fi
+      done
+    fi
+  else
+    INSTALL_MARIADB=0
+  fi
+
+  echo ""
+  echo "--------------------------------------------"
+  echo "  CTID      : ${CTID}"
+  echo "  Hostname  : ${HOSTNAME}"
+  echo "  Cores     : ${CORES}"
+  echo "  Memory    : ${MEMORY} MB"
+  echo "  Disk      : ${DISK_GB} GB on ${STORAGE}"
+  echo "  Network   : ${BRIDGE}, ${IP_CONFIG}${GATEWAY:+ gw ${GATEWAY}}"
+  echo "  SSH root  : $([[ ${ENABLE_SSH_ROOT} == 1 ]] && echo enabled || echo disabled)"
+  echo "  MariaDB   : $([[ ${INSTALL_MARIADB} == 1 ]] && echo "yes (db=${DB_NAME}, user=${DB_USER})" || echo no)"
+  echo "--------------------------------------------"
+  CONFIRM=$(ask "Create this container? (yes/no)" "yes")
+  [[ "${CONFIRM}" =~ ^[Yy] ]] || { echo "Aborted."; exit 0; }
+  echo ""
+else
+  # Non-interactive mode still needs passwords supplied via env vars
+  if [[ -z "${CT_ROOT_PASSWORD}" ]]; then
+    echo "Non-interactive mode: set CT_ROOT_PASSWORD env var." >&2
+    exit 1
+  fi
+  if [[ "${INSTALL_MARIADB}" == "1" && -z "${DB_PASSWORD}" ]]; then
+    echo "Non-interactive mode: set DB_PASSWORD env var (or INSTALL_MARIADB=0)." >&2
+    exit 1
+  fi
+fi
+# -----------------------------------------------------------------------------
 
 # Locate the FiveM setup script: use a local copy if it exists next to this
 # script, otherwise download it from the GitHub repo (one-liner mode).
@@ -116,7 +250,13 @@ done
 
 echo "==> Pushing and running FiveM setup script (this downloads ~100MB)..."
 pct push "${CTID}" "${SETUP_SCRIPT}" /root/fivem-lxc-setup.sh
-pct exec "${CTID}" -- bash /root/fivem-lxc-setup.sh
+pct exec "${CTID}" -- env \
+  ENABLE_SSH_ROOT="${ENABLE_SSH_ROOT}" \
+  INSTALL_MARIADB="${INSTALL_MARIADB}" \
+  DB_NAME="${DB_NAME}" \
+  DB_USER="${DB_USER}" \
+  DB_PASSWORD="${DB_PASSWORD}" \
+  bash /root/fivem-lxc-setup.sh
 
 CT_IP=$(pct exec "${CTID}" -- hostname -I | awk '{print $1}')
 
@@ -127,14 +267,27 @@ cat <<EOM
 =============================================================================
  Container IP : ${CT_IP}
  txAdmin URL  : http://${CT_IP}:40120   (after you start the service)
- Root login   : via 'pct enter ${CTID}' or console (password set in script)
+ Root login   : 'pct enter ${CTID}' or console
+EOM
+if [[ "${ENABLE_SSH_ROOT}" == "1" ]]; then
+  echo " SSH          : ssh root@${CT_IP}  (password you chose in the wizard)"
+fi
+if [[ "${INSTALL_MARIADB}" == "1" ]]; then
+  cat <<EOM
+ MariaDB      : db '${DB_NAME}', user '${DB_USER}' (localhost only)
+                Add to your server.cfg:
+                set mysql_connection_string "mysql://${DB_USER}:YOUR_DB_PASSWORD@localhost/${DB_NAME}?charset=utf8mb4"
+                Import your old data: mysql ${DB_NAME} < dump.sql
+EOM
+fi
+cat <<EOM
 
  Remaining steps (migrating your existing server):
 
- 1. Copy your data in, e.g. from this host:
-      pct push ${CTID} txdata.tar.gz /tmp/txdata.tar.gz
-      pct exec ${CTID} -- tar -xzf /tmp/txdata.tar.gz -C /home/fivem/txData --strip-components=1
-    (same idea for server-data; or scp directly to root@${CT_IP})
+ 1. Copy your data in, e.g. from another machine:
+      scp -r ./txData root@${CT_IP}:/home/fivem/txData
+      scp -r ./server-data root@${CT_IP}:/home/fivem/server-data
+    (or from this host: pct push ${CTID} <tarball> /tmp/ and extract)
 
  2. Fix ownership + txAdmin paths:
       pct exec ${CTID} -- chown -R fivem:fivem /home/fivem

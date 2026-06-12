@@ -3,7 +3,7 @@
 # FiveM LXC - fully automated provisioning for Proxmox
 #
 # One-liner usage from the Proxmox node shell (root):
-#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/YOUR_GH_USER/YOUR_REPO/main/proxmox-create-fivem-lxc.sh)"
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/blake165/automated-FiveM-lxc-for-proxmox/main/proxmox-create-fivem-lxc.sh)"
 #
 # It fetches fivem-lxc-setup.sh from the same repo automatically.
 # (Also still works run locally with both scripts in one directory.)
@@ -43,7 +43,7 @@ CT_ROOT_PASSWORD="${CT_ROOT_PASSWORD:-ChangeMe123!}"
 
 # Raw GitHub base URL of your repo (where fivem-lxc-setup.sh lives).
 # EDIT THIS to point at your repository:
-RAW_BASE="https://raw.githubusercontent.com/YOUR_GH_USER/YOUR_REPO/main"
+RAW_BASE="https://raw.githubusercontent.com/blake165/automated-FiveM-lxc-for-proxmox/main"
 # -----------------------------------------------------------------------------
 
 if [[ $EUID -ne 0 ]]; then echo "Run as root on the Proxmox host." >&2; exit 1; fi

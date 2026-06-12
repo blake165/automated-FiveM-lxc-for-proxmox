@@ -3,28 +3,16 @@
 Spin up a fully configured FiveM (FXServer + txAdmin) LXC container on Proxmox
 with a single command pasted into the node shell.
 
-## One-time repo setup
-
-1. Create a GitHub repo (public is simplest) and upload these files to the root
-   of the `main` branch:
-   - `proxmox-create-fivem-lxc.sh`
-   - `fivem-lxc-setup.sh`
-   - `SETUP-GUIDE.md` (optional, for reference)
-2. Edit `proxmox-create-fivem-lxc.sh` and set `RAW_BASE` to your repo:
-   ```bash
-   RAW_BASE="https://raw.githubusercontent.com/blake165/automated-FiveM-lxc-for-proxmox/main"
-   ```
-   Also change the default `CT_ROOT_PASSWORD`.
-
 ## Usage
 
 Paste into the **Proxmox node shell** (as root):
 
 ```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/YOUR_GH_USER/YOUR_REPO/main/proxmox-create-fivem-lxc.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/blake165/automated-FiveM-lxc-for-proxmox/main/proxmox-create-fivem-lxc.sh)"
 ```
 
 That single command will:
+
 - download the Debian 12 LXC template (if missing)
 - create + start an unprivileged container (onboot enabled)
 - install FiveM with the latest recommended FXServer artifact inside it
@@ -41,7 +29,7 @@ HOSTNAME_CT=fivem-prod \
 CORES=6 MEMORY=12288 DISK_GB=60 \
 IP_CONFIG="192.168.1.50/24" GATEWAY="192.168.1.1" \
 CT_ROOT_PASSWORD='something-strong' \
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/YOUR_GH_USER/YOUR_REPO/main/proxmox-create-fivem-lxc.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/blake165/automated-FiveM-lxc-for-proxmox/main/proxmox-create-fivem-lxc.sh)"
 ```
 
 | Variable | Default | Notes |

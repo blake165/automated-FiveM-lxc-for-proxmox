@@ -18,6 +18,7 @@ That single command will:
 - install FiveM with the latest recommended FXServer artifact inside it
 - set up a systemd service so the server survives reboots
 - print the container IP and txAdmin URL when done
+- "pct exec 110 -- systemctl start fivem" to start
 
 ### Customizing without editing the repo
 
